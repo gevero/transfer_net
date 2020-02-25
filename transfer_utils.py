@@ -159,12 +159,17 @@ def run_style_transfer(
     style_weight=1000000,
     content_weight=1,
     content_layers=['conv_1'],
-    style_layers=['conv_1'])):
+    style_layers=['conv_1']):
     """Run the style transfer."""
     print('Building the style transfer model..')
     model, style_losses, content_losses = get_style_model_and_losses(
-        cnn, normalization_mean, normalization_std, style_img, content_img,
-        content_layers=content_layers,style_layers=style_layers)
+        cnn,
+        normalization_mean,
+        normalization_std,
+        style_img,
+        content_img,
+        content_layers=content_layers,
+        style_layers=style_layers)
     optimizer = get_input_optimizer(input_img)
 
     print('Optimizing..')
