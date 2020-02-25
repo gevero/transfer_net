@@ -4,6 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import copy
 
+# define devic
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 # content loss
 class ContentLoss(nn.Module):
