@@ -72,8 +72,8 @@ def get_style_model_and_losses(cnn,
                                normalization_std,
                                style_img,
                                content_img,
-                               content_layers=content_layers_default,
-                               style_layers=style_layers_default):
+                               content_layers=['conv_1'],
+                               style_layers=['conv_1']):
     cnn = copy.deepcopy(cnn)
 
     # normalization module
@@ -142,16 +142,17 @@ def get_input_optimizer(input_img):
     return optimizer
 
 
-# style transfer main function
-def run_style_transfer(cnn,
-                       normalization_mean,
-                       normalization_std,
-                       content_img,
-                       style_img,
-                       input_img,
-                       num_steps=300,
-                       style_weight=1000000,
-                       content_weight=1):
+def run_style_transfer(
+    cnn,
+    # style transfer main function
+    normalization_mean,
+    normalization_std,
+    content_img,
+    style_img,
+    input_img,
+    num_steps=300,
+    style_weight=1000000,
+    content_weight=1):
     """Run the style transfer."""
     print('Building the style transfer model..')
     model, style_losses, content_losses = get_style_model_and_losses(
