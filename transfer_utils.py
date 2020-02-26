@@ -28,29 +28,53 @@ class ContentLoss(nn.Module):
 
 
 # gram matrix definition
-def gram_matrix(input):
+def gram_matrix(input, guidance_channel, guidance_weight):
     a, b, c, d = input.size()  # a=batch size(=1)
     # b=number of feature maps
     # (c,d)=dimensions of a f. map (N=c*d)
 
-    features = input.view(a * b, c * d)  # resise F_XL into \hat F_XL
+    # resize guidance channels
+    guidance_channel_resized = F.interpolate(guidance_channel, size=(c, d))
+    guidance_channel_view = guidance_channel_resized.view(1, c * d)
+    guided_features = torch.mul(guidance_channel_view, features)
 
-    G = torch.mm(features, features.t())  # compute the gram product
+    # resize F_XL into \hat F_XL
+    features = input.view(a * b, c * d)
+
+    # compute the gram product
+    G = torch.mm(guided_features, guided_features.t())
 
     # we 'normalize' the values of the gram matrix
     # by dividing by the number of element in each feature maps.
-    return G.div(a * b * c * d)
+    return guidance_weight * G.div(a * b * c * d)
 
 
 # style loss function
 class StyleLoss(nn.Module):
-    def __init__(self, target_feature):
+    def __init__(self, target_features, guidance_channels, guidance_weights):
         super(StyleLoss, self).__init__()
-        self.target = gram_matrix(target_feature).detach()
+
+        # initialize channels and weights
+        self.target = []
+        self.guidance_channels = guidance_channels.detach()
+        self.guidance_weights = guidance_weights.detach()
+
+        # build guided targets
+        for target_feature, guidance_channel, guidance_weight in zip(
+                target_features, guidance_channels, guidance_weights):
+            self.target.append(
+                gram_matrix(target_feature, guidance_channel,
+                            guidance_weight).detach())
 
     def forward(self, input):
-        G = gram_matrix(input)
-        self.loss = F.mse_loss(G, self.target)
+
+        # compute loss for all guided gram matrixes
+        self.loss = 0
+        for target, guidance_channel, guidance_weight in zip(
+                self.target, self.guidance_channels, self.guidance_weights):
+            G = gram_matrix(input, guidance_channel, guidance_weight)
+            self.loss += F.mse_loss(G, target)
+
         return input
 
 
@@ -75,7 +99,9 @@ class Normalization(nn.Module):
 def get_style_model_and_losses(cnn,
                                normalization_mean,
                                normalization_std,
-                               style_img,
+                               guidance_channels,
+                               guidance_weights,
+                               style_imgs,
                                content_img,
                                content_layers=['conv_1'],
                                style_layers=['conv_1']):
@@ -124,8 +150,11 @@ def get_style_model_and_losses(cnn,
 
         if name in style_layers:
             # add style loss:
-            target_feature = model(style_img).detach()
-            style_loss = StyleLoss(target_feature)
+            target_features = []
+            for style_img in style_imgs:
+                target_features.append(model(style_img).detach())
+            style_loss = StyleLoss(target_features, guidance_channels,
+                                   guidance_weights)
             model.add_module("style_loss_{}".format(i), style_loss)
             style_losses.append(style_loss)
 
@@ -152,8 +181,10 @@ def run_style_transfer(
     # style transfer main function
     normalization_mean,
     normalization_std,
+    guidance_channels,
+    guidance_weights,
     content_img,
-    style_img,
+    style_imgs,
     input_img,
     num_steps=300,
     style_weight=1000000,
@@ -166,7 +197,9 @@ def run_style_transfer(
         cnn,
         normalization_mean,
         normalization_std,
-        style_img,
+        guidance_channels,
+        guidance_weights,
+        style_imgs,
         content_img,
         content_layers=content_layers,
         style_layers=style_layers)
