@@ -34,7 +34,8 @@ def gram_matrix(input, guidance_channel, guidance_weight):
     # (c,d)=dimensions of a f. map (N=c*d)
 
     # resize guidance channels
-    guidance_channel_resized = F.interpolate(guidance_channel, size=(c, d))
+    guidance_channel_resized = F.interpolate(guidance_channel.unsqueeze(0),
+                                             size=(c, d))
     guidance_channel_view = guidance_channel_resized.view(1, c * d)
     guided_features = torch.mul(guidance_channel_view, features)
 
