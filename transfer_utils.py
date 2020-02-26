@@ -33,14 +33,14 @@ def gram_matrix(input, guidance_channel, guidance_weight):
     # b=number of feature maps
     # (c,d)=dimensions of a f. map (N=c*d)
 
+    # resize F_XL into \hat F_XL
+    features = input.view(a * b, c * d)
+
     # resize guidance channels
     guidance_channel_resized = F.interpolate(
         guidance_channel.unsqueeze(0).unsqueeze(0), size=(c, d))
     guidance_channel_view = guidance_channel_resized.view(1, c * d)
     guided_features = torch.mul(guidance_channel_view, features)
-
-    # resize F_XL into \hat F_XL
-    features = input.view(a * b, c * d)
 
     # compute the gram product
     G = torch.mm(guided_features, guided_features.t())
