@@ -94,78 +94,130 @@ class Normalization(nn.Module):
         return (img - self.mean) / self.std
 
 
-# returns a new model, built from the old one, where normalization
-# is in the first place and style and content losses are injected
-# after the content and style layers
-def get_style_model_and_losses(cnn,
-                               normalization_mean,
-                               normalization_std,
-                               guidance_channels,
-                               guidance_weights,
-                               style_imgs,
-                               content_img,
-                               content_layers=['conv_1'],
-                               style_layers=['conv_1']):
-    cnn = copy.deepcopy(cnn)
+# recursive function to add conv layer to model
+def build_model(cnn, normalization_mean, normalization_std, guidance_weights,
+                guidance_channels, content_img, style_imgs, content_layers,
+                style_layers, content_losses, style_losses):
+    '''
+    Subroutine that recoursively builds a model. It traverses the network
+    until it finds a "Base" layers
+
+    Arguments
+    ----------
+    'cnn' = input nn.Sequential model
+    'normalization_mean' = RGB pixel mean
+    'normalization_std' = RGB pixel standard deviation
+    'guidance_channels' = masks to guide the image stylization
+    'guidance_weights' = list containing the weights for the different
+    'content_img' = content image
+    'style_imgs' = list containing the style images
+    'content_layers'= conv layers used for the content loss
+    'style_layers'= conv layers used for the style losses
+    'content_losses'= list containing the content losses
+    'style_losses'= list containing the style losses
+    '''
 
     # normalization module
     normalization = Normalization(normalization_mean,
                                   normalization_std).to(device)
 
-    # just in order to have an iterable access to or list of content/syle
-    # losses
+    # initializa output model
+    out_model = nn.Sequential(normalization)
+
+    # go through the layers
+    n_conv = 0
+    for layer in cnn.modules():
+        if isinstance(layer, nn.Conv2d):
+            n_conv += 1
+            name = 'conv_{}'.format(n_conv)
+        elif isinstance(layer, nn.ReLU):
+            name = 'relu_{}'.format(n_conv)
+            layer = nn.ReLU(inplace=False)
+        elif isinstance(layer, nn.MaxPool2d):
+            name = 'pool_{}'.format(n_conv)
+        elif isinstance(layer, nn.BatchNorm2d):
+            name = 'bn_{}'.format(n_conv)
+        else:
+            continue
+
+        # add layer
+        out_model.add_module(name, layer)
+
+        # add content loss:
+        if name in content_layers:
+            target = out_model(content_img).detach()
+            content_loss = ContentLoss(target)
+            out_model.add_module("content_loss_{}".format(n_conv),
+                                 content_loss)
+            content_losses.append(content_loss)
+
+        # add style loss:
+        if name in style_layers:
+            target_features = []
+            for style_img in style_imgs:
+                target_features.append(out_model(style_img).detach())
+            style_loss = StyleLoss(target_features, guidance_channels,
+                                   guidance_weights)
+            out_model.add_module("style_loss_{}".format(n_conv), style_loss)
+            style_losses.append(style_loss)
+
+    return out_model, n_conv
+
+
+# returns a new model, built from the old one, where normalization
+# is in the first place and style and content losses are injected
+# after the content and style layers.
+def get_style_model_and_losses(cnn,
+                               normalization_mean,
+                               normalization_std,
+                               guidance_channels,
+                               guidance_weights,
+                               content_img,
+                               style_imgs,
+                               content_layers=['conv_1'],
+                               style_layers=['conv_1']):
+    '''
+    Returns a new model, built from the old one, where normalization
+    is in the first place and style and content losses are injected
+    after the content and style layers. It is meant for sequential
+    models.
+
+    Arguments
+    ----------
+    'cnn' = input nn.Sequential model
+    'normalization_mean' = RGB pixel mean
+    'normalization_std' = RGB pixel standard deviation
+    'guidance_channels' = masks to guide the image stylization
+    'guidance_weights' = list containing the weights for the different
+                         stylizations
+    'style_imgs' = list containing the style images
+    'content_img' = content image
+    'content_layers'= conv layers used for the content loss
+    'style_layers'= conv layers used for the style losses
+    '''
+
+    # ------- recursively build the style transfer model -------
+
+    # copy the base style transfer model
+    cnn = copy.deepcopy(cnn)
+
+    # list to be populated with losses
     content_losses = []
     style_losses = []
 
-    # assuming that cnn is a nn.Sequential, so we make a new nn.Sequential
-    # to put in modules that are supposed to be activated sequentially
-    model = nn.Sequential(normalization)
+    # finally build model
+    model, n_conv = build_model(cnn, normalization_mean, normalization_std,
+                                guidance_weights, guidance_channels,
+                                content_img, style_imgs, content_layers,
+                                style_layers, content_losses, style_losses)
 
-    i = 0  # increment every time we see a conv
-    for layer in cnn.children():
-        if isinstance(layer, nn.Conv2d):
-            i += 1
-            name = 'conv_{}'.format(i)
-        elif isinstance(layer, nn.ReLU):
-            name = 'relu_{}'.format(i)
-            # The in-place version doesn't play very nicely with the ContentLoss
-            # and StyleLoss we insert below. So we replace with out-of-place
-            # ones here.
-            layer = nn.ReLU(inplace=False)
-        elif isinstance(layer, nn.MaxPool2d):
-            name = 'pool_{}'.format(i)
-        elif isinstance(layer, nn.BatchNorm2d):
-            name = 'bn_{}'.format(i)
-        else:
-            raise RuntimeError('Unrecognized layer: {}'.format(
-                layer.__class__.__name__))
-
-        model.add_module(name, layer)
-
-        if name in content_layers:
-            # add content loss:
-            target = model(content_img).detach()
-            content_loss = ContentLoss(target)
-            model.add_module("content_loss_{}".format(i), content_loss)
-            content_losses.append(content_loss)
-
-        if name in style_layers:
-            # add style loss:
-            target_features = []
-            for style_img in style_imgs:
-                target_features.append(model(style_img).detach())
-            style_loss = StyleLoss(target_features, guidance_channels,
-                                   guidance_weights)
-            model.add_module("style_loss_{}".format(i), style_loss)
-            style_losses.append(style_loss)
-
-    # now we trim off the layers after the last content and style losses
+    # trim layers after the last content and style losses
     for i in range(len(model) - 1, -1, -1):
         if isinstance(model[i], ContentLoss) or isinstance(
                 model[i], StyleLoss):
             break
 
-    model = model[:(i + 1)]
+    model = model[:(n_conv + 1)]
 
     return model, style_losses, content_losses
 
@@ -177,21 +229,19 @@ def get_input_optimizer(input_img):
     return optimizer
 
 
-def run_style_transfer(
-    cnn,
-    # style transfer main function
-    normalization_mean,
-    normalization_std,
-    guidance_channels,
-    guidance_weights,
-    content_img,
-    style_imgs,
-    input_img,
-    num_steps=300,
-    style_weight=1000000,
-    content_weight=1,
-    content_layers=['conv_1'],
-    style_layers=['conv_1']):
+def run_style_transfer(cnn,
+                       normalization_mean,
+                       normalization_std,
+                       guidance_channels,
+                       guidance_weights,
+                       content_img,
+                       style_imgs,
+                       input_img,
+                       num_steps=300,
+                       style_weight=1000000,
+                       content_weight=1,
+                       content_layers=['conv_1'],
+                       style_layers=['conv_1']):
     """Run the style transfer."""
     print('Building the style transfer model..')
     model, style_losses, content_losses = get_style_model_and_losses(
@@ -214,6 +264,7 @@ def run_style_transfer(
             # correct the values of updated input image
             input_img.data.clamp_(0, 1)
 
+            # clears the gradient before each iteration
             optimizer.zero_grad()
             model(input_img)
             style_score = 0
