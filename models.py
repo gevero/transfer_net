@@ -192,7 +192,7 @@ class MoNetizeBody(nn.Module):
         x = self.Lemon1_1(x)
         x = self.Lemon1_2(x)
         if self.downsample == 0:
-            x = F.interpolate(x, 2)
+            x = F.interpolate(x, scale_factor=2)
         else:
             x = self.Lemon1_3(x)
 
@@ -200,7 +200,7 @@ class MoNetizeBody(nn.Module):
         x = self.Lemon2_1(x)
         x = self.Lemon2_2(x)
         if self.downsample == 0:
-            x = F.interpolate(x, 2)
+            x = F.interpolate(x, scale_factor=2)
         else:
             x = self.Lemon2_3(x)
 
