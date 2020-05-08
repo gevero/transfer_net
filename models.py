@@ -184,7 +184,7 @@ class MoNetizeBody(nn.Module):
         x = self.PreConvBn(x)
         x = self.PreConvReLU(x)
         if self.downsample == 0:
-            x = F.interpolate(x, scale_factor=0.5)
+            x = F.interpolate(x, scale_factor=0.2, mode='bicubic')
         else:
             x = self.PreDownsample(x)
 
@@ -192,7 +192,7 @@ class MoNetizeBody(nn.Module):
         x = self.Lemon1_1(x)
         x = self.Lemon1_2(x)
         if self.downsample == 0:
-            x = F.interpolate(x, scale_factor=0.5)
+            x = F.interpolate(x, scale_factor=0.7, mode='bicubic')
         else:
             x = self.Lemon1_3(x)
 
@@ -200,7 +200,7 @@ class MoNetizeBody(nn.Module):
         x = self.Lemon2_1(x)
         x = self.Lemon2_2(x)
         if self.downsample == 0:
-            x = F.interpolate(x, scale_factor=0.5)
+            x = F.interpolate(x, scale_factor=0.9, mode='bicubic')
         else:
             x = self.Lemon2_3(x)
 
