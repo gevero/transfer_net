@@ -216,7 +216,7 @@ class MoNetizeHead(nn.Module):
         super(MoNetizeHead, self).__init__()
 
         # Final layers
-        self.FinalAvgPool = nn.AdaptiveAvgPool2d(1)
+        self.FinalAvgPool = nn.AdaptiveMaxPool2d(1)
         self.FinalFlatten = Flatten()
         self.FinalLinear = nn.Linear(256, C)
         self.FinalSoftmax = nn.Softmax(1)
