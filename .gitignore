@@ -130,7 +130,7 @@ dmypy.json
 
 # custom stuff
 TransferNet.code-workspace
-*.jpg
+./*.jpg
 data/cifar-10-python.tar.gz
 data/cifar-10-batches-py/batches.meta
 data/cifar-10-batches-py/data_batch_1
