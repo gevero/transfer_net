@@ -50,7 +50,7 @@ net.to(device)
 
 # optimizer and loss
 criterion = nn.CrossEntropyLoss()
-optimizer = optim.AdamW(net.parameters(), lr=0.001)
+optimizer = optim.AdamW(net.parameters(), lr=0.00066)
 
 # training loop
 for epoch in range(20):  # loop over the dataset multiple times
