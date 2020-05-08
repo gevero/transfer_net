@@ -8,8 +8,20 @@
             "name": "Debug",
             "type": "python",
             "request": "launch",
-            "program": "./neural_style.py",
-            "console": "integratedTerminal"
+            "program": "${file}",
+            "console": "integratedTerminal",
+            "args": [
+                "--standard-train",
+                "--content",
+                "./content/face2_400.jpg",
+                "--style",
+                "./style/circle.jpg",
+                // "--style",
+                // "./style/wave.jpg",
+                "--content-start",
+                "--size-steps",
+                "1"
+            ]
         }
     ]
 }

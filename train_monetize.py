@@ -4,7 +4,7 @@ import torch.nn as nn
 import torchvision
 import torchvision.transforms as transforms
 import torch.optim as optim
-from models import MoNetize, VigNette
+from models import MoNetize
 import neural_style_utils as nsu
 
 # setup
@@ -45,27 +45,15 @@ classes = ('plane', 'car', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse',
            'ship', 'truck')
 
 # istantiate model
-net = MoNetize(C=10, p=0.1, squeeze_factor=2)
-# net = VigNette(C=10, p=0.4)
+net = MoNetize(C=10, p=0.2, squeeze_factor=4)
 net.to(device)
 
-# loss function
+# optimizer and loss
 criterion = nn.CrossEntropyLoss()
-
-# adam optimizer
 optimizer = optim.AdamW(net.parameters(), lr=0.001)
 
-# sgd optimizer
-# optimizer_sgd = optim.SGD(net.parameters(),
-#                           lr=1.0,
-#                           momentum=0.9,
-#                           weight_decay=5e-4)
-# lr_schedule = nsu.PiecewiseLinear([0, 4, 20], [0, 0.4, 0])
-# lr_lambda = lambda epoch: lr_schedule(epoch)
-# scheduler = optim.lr_scheduler.LambdaLR(optimizer_sgd, lr_lambda=lr_lambda)
-
 # training loop
-for epoch in range(50):  # loop over the dataset multiple times
+for epoch in range(20):  # loop over the dataset multiple times
 
     running_loss = 0.0
     for i, data in enumerate(trainloader, 0):
@@ -116,4 +104,6 @@ for epoch in range(50):  # loop over the dataset multiple times
           (100 * correct / total))
     net.train()
 
+# save model
+torch.save(net.state_dict(), './saved_models/MoNetize.pth')
 print('Finished Training')

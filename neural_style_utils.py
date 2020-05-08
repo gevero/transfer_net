@@ -6,10 +6,14 @@ from argparse import ArgumentParser
 import matplotlib.pyplot as plt
 from datetime import datetime
 from PIL import Image
+import numpy as np
+from collections import namedtuple
+from functools import singledispatch
 
 # pytorch
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import torchvision.transforms as transforms
 import neural_style_params as nsp
@@ -31,6 +35,7 @@ def build_parser():
                         required=True)
     parser.add_argument('--style',
                         dest='style',
+                        action='append',
                         help='path to style image',
                         required=True)
     parser.add_argument('--output',
@@ -59,6 +64,12 @@ def build_parser():
         dest='style_resize',
         help='resize so the size of smaller edge match the given size',
         default=nsp.STYLE_RESIZE)
+    parser.add_argument(
+        '--size-steps',
+        type=int,
+        dest='size_steps',
+        help='iterates stylization for size_steps to get to final size',
+        default=nsp.SIZE_STEPS)
     parser.add_argument('--iterations',
                         type=int,
                         dest='iters',
@@ -131,7 +142,7 @@ def imload(image_name, resize=None):
 
     # resize if necessary
     if resize is not None:
-        resizefunc = transforms.Scale(resize)
+        resizefunc = transforms.Resize(resize)
         image = resizefunc(image)
 
     # Build transform (H x W x C), [0, 255] --> (C x H x W), [0.0, 1.0]
@@ -146,6 +157,33 @@ def imload(image_name, resize=None):
         image = image.unsqueeze(0)
 
     return image
+
+
+def tensor_resize(tensor, size):
+    '''
+    A function to load an image and convert it to a Pytorch tensor
+
+    Arguments
+    ---------
+    'tensor' = a (1 x C x H x W) tensor.
+    'size' = (h,w) resizing tuple.
+
+    Returns
+    -------
+    'image' = a (1 x C x H x W) rescaled tensor.
+    '''
+
+    # auxiliary function
+    resizefunc = transforms.Resize(size)
+    toImage = transforms.ToPILImage()
+    toTensor = transforms.ToTensor()
+
+    # resize
+    with torch.no_grad():
+        tensor_img = toImage(tensor.squeeze().cpu())
+        tensor_resized = toTensor(resizefunc(tensor_img)).unsqueeze(0)
+
+    return tensor_resized
 
 
 def imshow(img):
@@ -179,6 +217,43 @@ def imsave(img, path):
     img.save(path)
 
 
+def size_array(content_size, size_steps):
+    '''
+    A function that computes an array of tuples representing
+    all the different size steps to get to the final stylization.
+
+    Arguments
+    ---------
+    'content_size' = a tuple with the stylized image final size.
+    'size_step' = an integer. The steps to get to the final size.
+
+    Returns
+    -------
+    'size_array' = an array of tuples containing all the size steps
+    '''
+
+    # if only one size step -> original size
+    if size_steps == 1:
+        return [content_size]
+
+    # if multiple size steps -> size array
+    h = content_size[0]
+    w = content_size[1]
+    min_size = nsp.CONTENT_START_SIZE
+    max_size = min(content_size)
+    s_array = []
+    for s in np.linspace(min_size, max_size, size_steps):
+
+        s = int(s)
+
+        if h > w:
+            s_array.append((s * (h // w), s))
+        else:
+            s_array.append((s, s * (h // w)))
+
+    return s_array
+
+
 class FeatureExtractor(nn.Module):
     '''
     A nn.Module class to extract a intermediate activation of a Torch module
@@ -196,7 +271,7 @@ class FeatureExtractor(nn.Module):
         super().__init__()
         self.module = module
 
-    def forward(self, image, layers):
+    def forward(self, image, layers, mask=None):
         '''
         Forward pass.
 
@@ -204,14 +279,35 @@ class FeatureExtractor(nn.Module):
         ---------
         'image' = input image tensor.
         'layers' = list containing the layer positions used
-                   to compute the needed features
+            to compute the needed features.
+        'mask' = a one hot encoded mask tensor to perform
+            guided style transfer.
         '''
 
+        # compute features
         features = []
         for i in range(layers[-1] + 1):
             image = self.module[i](image)
             if i in layers:
                 features.append(image)
+
+        # create guidance channels
+        if mask is not None:
+
+            # resize one hot masks to get channels
+            feature_channels = []
+            for feature in features:
+
+                # get feature size
+                n, f, h, w = feature.size()
+
+                # interpolate and store
+                channel = F.interpolate(mask.unsqueeze(0).unsqueeze(0),
+                                        size=(h, w))
+                feature_channels.append(channel)
+
+            return features, feature_channels
+
         return features
 
 
@@ -221,24 +317,43 @@ class GramMatrix(nn.Module):
     The style features are the output of FeatureExtractor
     forward pass.
     '''
-    def forward(self, style_features):
+    def forward(self, style_features, feature_channels=None):
         '''
         Forward pass.
 
         Arguments
         ---------
-        'style_features' = input feature tensor from FeatureExtractor.
+        'style_features' = input feature tensors from FeatureExtractor.
+        'feature_channels' = style channel tensors from FeatureExtractor.
         '''
 
         # empty output list
         gram_features = []
 
-        # loop over all style features to get gram features
-        for feature in style_features:
-            n, f, h, w = feature.size()
-            feature = feature.resize(n * f, h * w)
-            gram_features.append(
-                (feature @ feature.t()).div_(2 * n * f * h * w))
+        # guided styles
+        if feature_channels is not None:
+
+            for feature, channel in zip(style_features, feature_channels):
+
+                # get feature size
+                n, f, h, w = feature.size()
+
+                # reshape channel
+                channel = channel.resize(1, h * w)
+
+                # guide style features and compute gram matrix
+                feature = feature.resize(n * f, h * w)
+                feature = torch.mul(channel, feature)
+                gram_features.append(
+                    (feature @ feature.t()).div_(2 * n * f * h * w))
+
+        # single style
+        else:
+            for feature in style_features:
+                n, f, h, w = feature.size()
+                feature = feature.resize(n * f, h * w)
+                gram_features.append(
+                    (feature @ feature.t()).div_(2 * n * f * h * w))
 
         return gram_features
 
@@ -264,7 +379,7 @@ class Stylize(nn.Module):
         self.feature = feature
         self.gram = gram
 
-    def forward(self, x):
+    def forward(self, x, feature_channels=None):
         '''
         Forward pass.
 
@@ -275,7 +390,7 @@ class Stylize(nn.Module):
 
         # style features
         s_feats = self.feature(x, nsp.STYLE_LAYER)
-        s_feats = self.gram(s_feats)
+        s_feats = self.gram(s_feats, feature_channels)
 
         # content features
         c_feats = self.feature(x, nsp.CONTENT_LAYER)
@@ -283,8 +398,9 @@ class Stylize(nn.Module):
         return s_feats, c_feats
 
 
-def totalloss(custom_loss, style_refs, content_refs, style_features,
-              content_features, style_weight, content_weight):
+def totalloss_singlestyle(custom_loss, style_refs, content_refs,
+                          style_features, content_features, style_weight,
+                          content_weight):
     '''
     A function that computes the total loss.
 
@@ -319,12 +435,73 @@ def totalloss(custom_loss, style_refs, content_refs, style_features,
     ]) / len(content_refs)
 
     # total loss, weighting style and content
+    # print(style_weight, content_weight)
+    # print('styleloss: ', style_weight * style_loss, ' contentloss: ',
+    #       content_weight * content_loss)
     total_loss = style_weight * style_loss + content_weight * content_loss
 
     return total_loss
 
 
-def reference(style_img, content_img, feature, gram):
+def totalloss(custom_loss,
+              train_img,
+              style_refs,
+              content_refs,
+              style,
+              options,
+              style_channels=None):
+    '''
+    A function that computes the total loss.
+
+    Arguments
+    ---------
+    'custom_loss' = pytorch loss function.
+    'train_img' = tensor the shall become the stylized image.
+    'style_refs' = tensors or list of. Style features of the reference images.
+    'content_refs' = tensors. Content features for the reference images.
+    'style_features, content_features' = tensors. Style and content features
+        for the final image.
+    'style' = Stylize class instance.
+    'options' = parser options.
+    'style_channels' = list of tensors. Guidance chanels for the transfer
+        of multiple styles.
+
+    Returns
+    -------
+    'total_loss' = a 0-dim tensor with the loss?
+    '''
+
+    # multiple styles
+    if style_channels is not None:
+
+        # compute composite loss for multiple styles
+        loss = 0
+        for style_ref, style_channel in zip(style_refs, style_channels):
+
+            # compute train_img style and content features
+            style_features, content_features = style(train_img, style_channel)
+
+            # the total loss
+            loss += totalloss_singlestyle(custom_loss, style_ref, content_refs,
+                                          style_features, content_features,
+                                          options.style_weight,
+                                          options.content_weight)
+
+    # single style
+    else:
+
+        # compute train_img style and content features
+        style_features, content_features = style(train_img)
+
+        # the total loss
+        loss = totalloss_singlestyle(custom_loss, style_refs, content_refs,
+                                     style_features, content_features,
+                                     options.style_weight,
+                                     options.content_weight)
+    return loss
+
+
+def reference_singlestyle(style_img, content_img, feature, gram, mask=None):
     '''
     A function that computes the reference style and content features.
 
@@ -334,16 +511,27 @@ def reference(style_img, content_img, feature, gram):
     'content_img' = a tensor. The content reference image.
     'feature' = a FeatureExtractor instance.
     'gram' = a GramMatrix instance.
+    'mask' = a one hot encoded mask tensor to perform
+            guided style transfer.
 
     Returns
     -------
-    'style_refs, content_refs' = tensors. The style and content
-        reference features to calculate the loss.
+    'style_refs, content_refs, (style_channels)' = tensors.
+        The style and content reference features to
+        calculate the loss, + style guidance channels.
     '''
 
     # style reference features
-    style_refs = feature(style_img, nsp.STYLE_LAYER)
-    style_refs = gram(style_refs)
+    if mask is not None:
+        style_refs, style_channels = feature(style_img, nsp.STYLE_LAYER, mask)
+        style_refs = gram(style_refs, style_channels)
+        style_channels = [
+            style_channel.detach() for style_channel in style_channels
+        ]
+    else:
+        style_refs = feature(style_img, nsp.STYLE_LAYER)
+        style_refs = gram(style_refs)
+
     # unrolling in a list of tensors
     style_refs = [style_ref.detach() for style_ref in style_refs]
 
@@ -352,69 +540,145 @@ def reference(style_img, content_img, feature, gram):
     # unrolling in a list of tensors
     content_refs = [content_ref.detach() for content_ref in content_refs]
 
-    return style_refs, content_refs
+    if mask is not None:
+        return style_refs, content_refs, style_channels
+    else:
+        return style_refs, content_refs
 
 
-def adam_optimization(content_img, style_img, model, options):
+def reference(style_img, content_img, feature, gram, mask=None):
+    '''
+    A function that computes the reference style and content features.
+
+    Arguments
+    ---------
+    'style_img' = a tensor or a list of tensors. The style reference images.
+    'content_img' = a tensor. The content reference image.
+    'feature' = a FeatureExtractor instance.
+    'gram' = a GramMatrix instance.
+    'mask' = a categorically encoded mask tensor to perform
+            guided style transfer.
+
+    Returns
+    -------
+    'style_refs, content_refs' = tensors.
+        The style and content reference features to
+        calculate the loss.
+
+    or
+
+    style_refs_list, content_refs, style_channels_list' = tensors or list of.
+        The list contains style_refs and style_channels for each style, while
+        the content refs are still unique.
+    '''
+
+    # multiple styles
+    if mask is not None:
+
+        # mask to one-hot encoding
+        moh = F.one_hot(mask.long()).float()
+
+        style_refs_list = []
+        style_channels_list = []
+        for i_img, s_img in enumerate(style_img):
+
+            # compute reference feature and style channels
+            style_refs, content_refs, style_channels = reference_singlestyle(
+                s_img, content_img, feature, gram, moh[:, :, i_img])
+
+            # save data
+            style_refs_list.append(style_refs)
+            style_channels_list.append(style_channels)
+
+        return style_refs_list, content_refs, style_channels_list
+
+    # single style
+    else:
+        style_refs, content_refs = reference_singlestyle(
+            style_img[0], content_img, feature, gram)
+        return style_refs, content_refs
+
+
+def adam_optimization(content_img,
+                      style_img,
+                      train_img,
+                      model,
+                      options,
+                      mask=None,
+                      device='cpu',
+                      fileid=''):
     '''
     A function that computes the reference style and content features.
 
     Arguments
     ---------
     'content_img' = a tensor. The content reference image.
-    'style_img' = a tensor. The style reference image.
+    'style_img' = a tensor or a list of tensors. The style reference images.
+    'train_img' = a tensor. The stylized image.
     'model' = a PyTorch model.
     'options' = parser options.
+    'mask' = a categorically encoded mask tensor to perform
+            guided style transfer.
+
 
     Returns
     -------
     'best_img' = a tensor. Best image found.
     '''
 
-    # get headless model
-    headless_model = next(model.children())
-
-    # instantiate the feature extractor with model
-    feature = FeatureExtractor(headless_model)
-
-    # instantiate a class (basically a function that
-    # inherits from nn.module so that I have a forward
-    #  method here), to compute the gram matrix starting
-    # from the style features
-    gram = GramMatrix()
-
-    # class `style` takes as input the image to be stylized
-    # (optimized), and returns the style features and the
-    # content features to be used in the loss function.
-    style = Stylize(feature, gram)
+    # ----------------------------------------------------------------
+    # --------- Initialize loss, tensors, optim and trackers ---------
+    # ----------------------------------------------------------------
 
     # loss function
     l2loss = nn.MSELoss(size_average=False)
-
-    # init a trainable image (a tensor)
-    if options.random_start:
-        train_img = torch.randn(content_img.size(), requires_grad=True)
-    else:
-        train_img = content_img.clone()
-        train_img.requires_grad = True
 
     # optimizer: different optimizers for different phases of the training
     optimizer = optim.Adam([train_img], lr=options.lr)
     optimizer1 = optim.Adam([train_img], lr=0.1)
     optimizer2 = optim.Adam([train_img], lr=0.01)
 
-    # trakers
+    # trackers
     loss_history = []
     min_loss = float('inf')
     best_img = None
 
-    # reference to compute loss
-    # these are the reference tensors used to compute
-    # the loss functions
-    style_refs, content_refs = reference(style_img, content_img, feature, gram)
+    # --------------------------------------------
+    # --------- Initialize style classes ---------
+    # --------------------------------------------
+
+    # get headless model
+    headless_model = next(model.children())
+    headless_model = nn.Sequential(
+        *list(headless_model.children())[:-1]).to(device)
+    print(headless_model)
+
+    # instantiate classes to compute style and content features
+    feature = FeatureExtractor(headless_model)
+    gram = GramMatrix()
+    style = Stylize(feature, gram)
+
+    # ---------------------------------------------------------------
+    # --------- Initialize reference style/content features ---------
+    # ---------------------------------------------------------------
+
+    # multiple styles
+    if mask is not None:
+        # compute reference feature and style channels
+        style_refs_list, content_refs, style_channels_list = reference(
+            style_img, content_img, feature, gram, mask)
+
+    # single style
+    else:
+        style_refs, content_refs = reference(style_img, content_img, feature,
+                                             gram)
+
+    # ---------------------------------------------------------------
+    # ----------------------- optimization loop ---------------------
+    # ---------------------------------------------------------------
 
     Start = datetime.now()
-    num_iters = 1000 if options.std_tr else options.iters
+    num_iters = 800 if options.std_tr else options.iters
 
     for i in range(num_iters):
 
@@ -432,15 +696,18 @@ def adam_optimization(content_img, style_img, model, options):
         # clamp the values of the input image
         train_img.data.clamp_(-1, 1)
 
-        # Style and content features used for the calculation of
-        # the total loss: these quantities are modified at each
-        # iteration: basically, this is the FORWARD PASS
-        style_features, content_features = style(train_img)
+        # ---------------------------------------------------------------
+        # --------- Style features and loss: maybe for multi-styles -----
+        # ---------------------------------------------------------------
+        # multiple styles
+        if mask is not None:
+            loss = totalloss(l2loss, train_img, style_refs_list, content_refs,
+                             style, options, style_channels_list)
 
-        # the total loss
-        loss = totalloss(l2loss, style_refs, content_refs, style_features,
-                         content_features, options.style_weight,
-                         options.content_weight)
+        # single style
+        else:
+            loss = totalloss(l2loss, train_img, style_refs, content_refs,
+                             style, options)
 
         # saving the loss history
         loss_history.append(loss.item())
@@ -470,8 +737,14 @@ def adam_optimization(content_img, style_img, model, options):
 
         # save image every imsave_intvl
         if i % options.imsave_intvl == 0 and i != 0:
-            save_path = options.output.replace('.jpg', '_step%d.jpg' % i)
-            imsave(train_img, save_path)
+            save_path = options.output.replace('.jpg',
+                                               fileid + '_step%d.jpg' % i)
+            imsave(train_img.cpu(), save_path)
             print("image at step %d saved." % i)
 
     return best_img
+
+
+class PiecewiseLinear(namedtuple('PiecewiseLinear', ('knots', 'vals'))):
+    def __call__(self, t):
+        return np.interp([t], self.knots, self.vals)[0]
