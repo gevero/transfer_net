@@ -214,7 +214,7 @@ def imsave(img, path):
 
     # denormalize tensor before convert
     img = toImage(img[0] * 0.5 + 0.5)
-    img.save(path)
+    img.save(path, 'PNG')
 
 
 def size_array(content_size, size_steps):
@@ -737,8 +737,8 @@ def adam_optimization(content_img,
 
         # save image every imsave_intvl
         if i % options.imsave_intvl == 0 and i != 0:
-            save_path = options.output.replace('.jpg',
-                                               fileid + '_step%d.jpg' % i)
+            save_path = options.output.replace('.png',
+                                               fileid + '_step%d.png' % i)
             imsave(train_img.cpu(), save_path)
             print("image at step %d saved." % i)
 

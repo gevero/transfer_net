@@ -1,5 +1,5 @@
 # default arguments
-OUTPUT_PATH = 'result.jpg'
+OUTPUT_PATH = 'result.png'
 ITERATIONS = 600
 CONTENT_WEIGHT = 1e-3
 STYLE_WEIGHT = 1e6
