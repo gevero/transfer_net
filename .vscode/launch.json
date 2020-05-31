@@ -22,6 +22,20 @@
                 "--size-steps",
                 "1"
             ]
+        },
+        {
+            "name": "Train",
+            "type": "python",
+            "request": "launch",
+            "program": "train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--arch",
+                "squeezenet1_1",
+                "--dataset",
+                "cifar10",
+                "./cifar10",
+            ]
         }
     ]
 }

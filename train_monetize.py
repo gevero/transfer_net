@@ -5,7 +5,6 @@ import torchvision
 import torchvision.transforms as transforms
 import torch.optim as optim
 from models import MoNetize
-import neural_style_utils as nsu
 
 # setup
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
