@@ -91,11 +91,11 @@ class MoNetize(nn.Module):
         if version == '1_0':
             self.features = nn.Sequential(
                 # First conv + interpolate downscale
-                nn.Conv2d(3, 48, kernel_size=7, stride=1),
+                nn.Conv2d(3, 96, kernel_size=7, stride=1),
                 nn.ReLU(inplace=True),
                 Interpolate(0.5, 'bilinear'),
                 # Second conv + interpolate downscale
-                nn.Conv2d(48, 96, kernel_size=7, stride=1),
+                nn.Conv2d(96, 96, kernel_size=7, stride=1),
                 nn.ReLU(inplace=True),
                 Interpolate(0.5, 'bilinear'),
                 # First fire sequence + interpolate downscale
@@ -114,11 +114,11 @@ class MoNetize(nn.Module):
         elif version == '1_1':
             self.features = nn.Sequential(
                 # First conv + interpolate downscale
-                nn.Conv2d(3, 32, kernel_size=3, stride=1),
+                nn.Conv2d(3, 64, kernel_size=3, stride=1),
                 nn.ReLU(inplace=True),
                 Interpolate(0.5, 'bilinear'),
                 # Second conv + interpolate downscale
-                nn.Conv2d(32, 64, kernel_size=3, stride=1),
+                nn.Conv2d(64, 64, kernel_size=3, stride=1),
                 nn.ReLU(inplace=True),
                 Interpolate(0.5, 'bilinear'),
                 # First fire sequence + interpolate downscale
