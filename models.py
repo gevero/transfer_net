@@ -93,16 +93,16 @@ class MoNetize(nn.Module):
                 # First conv + interpolate downscale
                 nn.Conv2d(3, 48, kernel_size=7, stride=1),
                 nn.ReLU(inplace=True),
-                Interpolate(0.5, 'linear'),
+                Interpolate(0.5, 'bilinear'),
                 # Second conv + interpolate downscale
                 nn.Conv2d(48, 96, kernel_size=7, stride=1),
                 nn.ReLU(inplace=True),
-                Interpolate(0.5, 'linear'),
+                Interpolate(0.5, 'bilinear'),
                 # First fire sequence + interpolate downscale
                 Fire(96, 16, 64, 64),
                 Fire(128, 16, 64, 64),
                 Fire(128, 32, 128, 128),
-                Interpolate(0.5, 'linear'),
+                Interpolate(0.5, 'bilinear'),
                 # Second fire sequence + interpolate downscale
                 Fire(256, 32, 128, 128),
                 Fire(256, 48, 192, 192),
@@ -116,19 +116,19 @@ class MoNetize(nn.Module):
                 # First conv + interpolate downscale
                 nn.Conv2d(3, 32, kernel_size=3, stride=1),
                 nn.ReLU(inplace=True),
-                Interpolate(0.5, 'linear'),
+                Interpolate(0.5, 'bilinear'),
                 # Second conv + interpolate downscale
                 nn.Conv2d(32, 64, kernel_size=3, stride=1),
                 nn.ReLU(inplace=True),
-                Interpolate(0.5, 'linear'),
+                Interpolate(0.5, 'bilinear'),
                 # First fire sequence + interpolate downscale
                 Fire(64, 16, 64, 64),
                 Fire(128, 16, 64, 64),
-                Interpolate(0.5, 'linear'),
+                Interpolate(0.5, 'bilinear'),
                 # Second fire sequence + interpolate downscale
                 Fire(128, 32, 128, 128),
                 Fire(256, 32, 128, 128),
-                Interpolate(0.5, 'linear'),
+                Interpolate(0.5, 'bilinear'),
                 Fire(256, 48, 192, 192),
                 Fire(384, 48, 192, 192),
                 Fire(384, 64, 256, 256),
