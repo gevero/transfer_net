@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 import torch.nn.functional as F
 from torch.nn.modules import Flatten
 
@@ -73,7 +74,7 @@ class Lemon(nn.Module):
         return x
 
 
-class MoNetizeBody(nn.Module):
+class MoNetizeBody_old(nn.Module):
     def __init__(self, C=200, squeeze_factor=2, p=0.5, downsample=0):
         super(MoNetizeBody, self).__init__()
 
@@ -211,7 +212,7 @@ class MoNetizeBody(nn.Module):
         return x
 
 
-class MoNetizeHead(nn.Module):
+class MoNetizeHead_old(nn.Module):
     def __init__(self, C=200):
         super(MoNetizeHead, self).__init__()
 
@@ -231,16 +232,16 @@ class MoNetizeHead(nn.Module):
         return x
 
 
-class MoNetize(nn.Module):
+class MoNetize_old(nn.Module):
     def __init__(self, C=200, squeeze_factor=2, p=0.5, downsample=0):
         super(MoNetize, self).__init__()
 
         # Preliminary layer: /2
-        self.MoNetizeBody = MoNetizeBody(C=C,
-                                         squeeze_factor=squeeze_factor,
-                                         p=p,
-                                         downsample=downsample)
-        self.MoNetizeHead = MoNetizeHead(C=C)
+        self.MoNetizeBody = MoNetizeBody_old(C=C,
+                                             squeeze_factor=squeeze_factor,
+                                             p=p,
+                                             downsample=downsample)
+        self.MoNetizeHead = MoNetizeHead_old(C=C)
 
     def forward(self, x):
 
@@ -305,7 +306,7 @@ class ResLayer(nn.Module):
         return x
 
 
-class VigNette(nn.Module):
+class VigNette_old(nn.Module):
     def __init__(self, C=200, p=0.1):
         super(VigNette, self).__init__()
 
@@ -353,3 +354,148 @@ class VigNette(nn.Module):
         x = self.FinalLinear(x)
         x = self.FinalSoftmax(x)
         return x
+
+
+class Interpolate(nn.Module):
+    '''
+    A class for the interpolation layers, which is only functional
+
+    Arguments
+    ----------
+    'scale_factor' = a `Float`: layer scaling
+    'mode' = a `String`: interpolation scheme
+
+
+    Returns
+    -------
+    'output' = A `Tensor` with the same type as `x`
+    '''
+    def __init__(self, scale_factor, mode):
+        super(Interpolate, self).__init__()
+        self.interp = nn.functional.interpolate
+        self.scale_factor = scale_factor
+        self.mode = mode
+
+    def forward(self, x):
+        x = self.interp(x,
+                        scale_factor=self.scale_factor,
+                        mode=self.mode,
+                        align_corners=False)
+        return x
+
+
+class Fire(nn.Module):
+    '''
+    Squeezenet Fire modules as in the original pytorch implementation
+
+    Arguments
+    ----------
+    'inplanes' = an `Integer`: number of input channels
+    'squeeze_planes' = an `Integer`: number of squeezed channels
+    'expand1x1_planes' = an `Integer`: number of output 1x1 channels
+    'expand3x3_planes' = an `Integer`: number of output 3x3 channels
+
+    Returns
+    -------
+    'output' = A `Tensor` with the same type as `x`, concatenating the 1x1
+               and the 3x3 convolution outputs
+    '''
+    def __init__(self, inplanes, squeeze_planes, expand1x1_planes,
+                 expand3x3_planes):
+        super(Fire, self).__init__()
+        self.inplanes = inplanes
+        self.squeeze = nn.Conv2d(inplanes, squeeze_planes, kernel_size=1)
+        self.squeeze_activation = nn.ReLU(inplace=True)
+        self.expand1x1 = nn.Conv2d(squeeze_planes,
+                                   expand1x1_planes,
+                                   kernel_size=1)
+        self.expand1x1_activation = nn.ReLU(inplace=True)
+        self.expand3x3 = nn.Conv2d(squeeze_planes,
+                                   expand3x3_planes,
+                                   kernel_size=3,
+                                   padding=1)
+        self.expand3x3_activation = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        x = self.squeeze_activation(self.squeeze(x))
+        return torch.cat([
+            self.expand1x1_activation(self.expand1x1(x)),
+            self.expand3x3_activation(self.expand3x3(x))
+        ], 1)
+
+
+class MoNetize(nn.Module):
+    '''
+    A SqueezeNet inspired NNet for Gatys style neural style transfer
+
+    Arguments
+    ----------
+    'version' = a `String`: 1.0 or 1.1 squeezenet architecture
+    'num_classes' = an `Integer`: number of classes
+
+    Returns
+    -------
+    'output' = A `Tensor` with the same type as `x`, concatenating the 1x1
+               and the 3x3 convolution outputs
+    '''
+    def __init__(self, version='1_0', num_classes=1000):
+        super(MoNetize, self).__init__()
+        self.num_classes = num_classes
+        if version == '1_0':
+            self.features = nn.Sequential(
+                nn.Conv2d(3, 96, kernel_size=7, stride=2),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
+                Fire(96, 16, 64, 64),
+                Fire(128, 16, 64, 64),
+                Fire(128, 32, 128, 128),
+                nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
+                Fire(256, 32, 128, 128),
+                Fire(256, 48, 192, 192),
+                Fire(384, 48, 192, 192),
+                Fire(384, 64, 256, 256),
+                nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
+                Fire(512, 64, 256, 256),
+            )
+        elif version == '1_1':
+            self.features = nn.Sequential(
+                nn.Conv2d(3, 64, kernel_size=3, stride=2),
+                nn.ReLU(inplace=True),
+                nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
+                Fire(64, 16, 64, 64),
+                Fire(128, 16, 64, 64),
+                nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
+                Fire(128, 32, 128, 128),
+                Fire(256, 32, 128, 128),
+                nn.MaxPool2d(kernel_size=3, stride=2, ceil_mode=True),
+                Fire(256, 48, 192, 192),
+                Fire(384, 48, 192, 192),
+                Fire(384, 64, 256, 256),
+                Fire(512, 64, 256, 256),
+            )
+        else:
+            # FIXME: Is this needed? SqueezeNet should only be called from the
+            # FIXME: squeezenet1_x() functions
+            # FIXME: This checking is not done for the other models
+            raise ValueError("Unsupported SqueezeNet version {version}:"
+                             "1_0 or 1_1 expected".format(version=version))
+
+        # Final convolution is initialized differently from the rest
+        final_conv = nn.Conv2d(512, self.num_classes, kernel_size=1)
+        self.classifier = nn.Sequential(nn.Dropout(p=0.5), final_conv,
+                                        nn.ReLU(inplace=True),
+                                        nn.AdaptiveAvgPool2d((1, 1)))
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                if m is final_conv:
+                    init.normal_(m.weight, mean=0.0, std=0.01)
+                else:
+                    init.kaiming_uniform_(m.weight)
+                if m.bias is not None:
+                    init.constant_(m.bias, 0)
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.classifier(x)
+        return torch.flatten(x, 1)

@@ -6,6 +6,7 @@ import torch
 import torchvision.models as models
 import torch.nn.functional as F
 import neural_style_utils as nsu
+from collections import OrderedDict
 
 # select device
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -53,9 +54,24 @@ style_tensor_0 = style_tensor[0]
 mask = None
 
 # load pretrained model: whole model with classification head
-model = models.squeezenet1_1(pretrained=True)
+model = models.squeezenet1_0(pretrained=False)
+
+# load checkpoint
+checkpoint = torch.load('./trained_models/squeezenet_imagenet.pth.tar',
+                        map_location=torch.device(device))
+
+# fix dictionary
+checkpoint_state_dict = OrderedDict()
+for k, v in checkpoint['state_dict'].items():
+    if k[0:6] == 'module':
+        name = k[7:]  # remove `module.`
+        checkpoint_state_dict[name] = v
+
+# load params
+model.load_state_dict(checkpoint_state_dict)
+
+# model to device
 model.to(device)
-print(model)
 
 # loop for multiscale stylization
 s_array = nsu.size_array(tuple(content_tensor_0.size()[2:]),

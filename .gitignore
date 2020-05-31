@@ -131,6 +131,7 @@ dmypy.json
 # custom stuff
 TransferNet.code-workspace
 ./*.jpg
+result*.png
 data/cifar-10-python.tar.gz
 data/cifar-10-batches-py/batches.meta
 data/cifar-10-batches-py/data_batch_1
@@ -140,3 +141,5 @@ data/cifar-10-batches-py/data_batch_4
 data/cifar-10-batches-py/data_batch_5
 data/cifar-10-batches-py/readme.html
 data/cifar-10-batches-py/test_batch
+tensorboard_debug.py
+tb_debug.py
