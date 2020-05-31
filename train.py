@@ -127,6 +127,12 @@ parser.add_argument('--dataset',
                     default='cifar10',
                     type=str,
                     help='choose between cifar10 and imagenet dataset')
+parser.add_argument('--lr_adjust',
+                    default=30,
+                    type=int,
+                    metavar='LR',
+                    help='learning rate adjustement period',
+                    dest='lr_adjust')
 
 best_acc1 = 0
 
@@ -508,7 +514,7 @@ class ProgressMeter(object):
 def adjust_learning_rate(optimizer, epoch, args):
     """Sets the learning rate to the initial LR decayed
     by 10 every 30 epochs"""
-    lr = args.lr * (0.1**(epoch // 30))
+    lr = args.lr * (0.1**(epoch // args.lr_adjust))
     for param_group in optimizer.param_groups:
         param_group['lr'] = lr
 
