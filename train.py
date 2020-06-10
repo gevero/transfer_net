@@ -19,6 +19,7 @@ import torchvision.transforms as transforms
 import torchvision.datasets as datasets
 import torchvision.models as models
 from models import MoNetize
+from torch.utils.tensorboard import SummaryWriter
 
 model_names = sorted(name for name in models.__dict__
                      if name.islower() and not name.startswith("__")
@@ -140,6 +141,9 @@ best_acc1 = 0
 
 def main():
     args = parser.parse_args()
+
+    # initialize tensorboard writer
+    writer = SummaryWriter()
 
     if args.seed is not None:
         random.seed(args.seed)
